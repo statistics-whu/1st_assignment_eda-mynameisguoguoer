@@ -1,0 +1,355 @@
+---
+title: "关于武汉链家二手房的数据规律分析"
+author: "李嘉欣"
+date: "2023-10-18"
+output:
+  rticles::ctex:
+    fig_caption: yes
+    number_sections: yes
+    toc: yes
+  pdf_document:
+    toc: yes
+documentclass: ctexart
+---
+```{r setup, include = FALSE,echo = FALSE}
+knitr::opts_chunk$set(echo = FALSE,error = FALSE, warning = FALSE, message = FALSE,
+                      out.width = "100%", split = FALSE, fig.align = "center")
+#load library
+library(tidyverse)
+library(lubridate)
+library(scales)
+library(patchwork)
+```
+
+# 你的主要发现
+
+1. 发现1：整体发现
+  整体价格：单位面积均价和总面积均价都高于中位数；单位面积均价较高的小区和区域较多在武昌区；
+  整体面积：武汉二手房平均面积超100㎡，为中等户型；两室一厅和三室两厅为较常见的格局；
+
+2. 发现2：公共配套设施（如地铁）对房价有较明显影响；
+  当前武汉链家中的二手房里，近地铁与不近地铁比例接近1:1，近地铁的单位面积均价（16623.93元/㎡）要高于近地铁的单位面积均价（13562.86元/㎡）
+  
+3. 发现3：建筑自身格局影响：南向贵，板塔结合贵，总高高的贵，住宅位置高的贵；板楼多，多层6-8层，多层中11、18层，32-35层多，主朝向为南向的多，房间个数2、3、4个的多；
+    
+
+# 数据介绍
+
+本报告**链家网**数据获取方式如下：
+    
+报告人在2023年9月12日获取了[链家武汉二手房网站](https://wh.lianjia.com/ershoufang/)数据。
+    
+- 链家二手房网站默认显示100页，每页30套房产，因此本数据包括3000套房产信息；
+    
+- 数据包括了页面可见部分的文本信息，具体字段及说明见作业说明。
+
+ **说明：**数据仅用于教学；由于不清楚链家数据的展示规则，因此数据可能并不是武汉二手房市场的随机抽样，结论很可能有很大的偏差，甚至可能是错误的。
+    
+```{r}
+# 载入数据和预处理
+
+lj<- read_csv("D:/data/2023-09-12_cleaned.csv")
+# EDA ---------------------------------------------------------------------
+
+## 如下语句可以解决画图中的中文显示问题，当然你可以用showtext包来解决
+
+#theme_set(theme(text = element_text(family="黑体",size = 10))) #这里family设置成你系统中的中文字体名。
+
+# 做一些数据预处理，比如把字符型变成factor。
+
+```
+
+# 数据概览
+
+数据表（lj)共包括`r names(lj)`等`r ncol(lj)`个变量,共`r nrow(lj)`行。表的前10行示例如下：
+
+
+
+各变量的简短信息：
+```{r}
+glimpse(lj)
+```
+
+各变量的简短统计：
+```{r}
+summary(lj)
+```
+```{r}
+property_region_count <- lj %>%
+  group_by(property_region) %>%             
+  summarise(count_n = n(),
+            avg_building_area = mean(building_area),
+            avg_price_sqm = mean(price_sqm)) %>% 
+  arrange(desc(count_n))       
+property_region_count
+```
+```{r}
+property_region_count <- lj %>%
+  group_by(property_name) %>%              
+  summarise(count_n = n(),
+            avg_building_area = mean(building_area),
+            avg_price_sqm = mean(price_sqm)) %>%   
+  arrange(desc(count_n))       
+property_region_count
+```
+
+
+```{r}
+property_region_count <- lj %>%
+  group_by(property_name) %>%             
+  summarise(count_n = n(),
+            avg_followers=mean(followers),
+            avg_building_area = mean(building_area),
+            avg_price_sqm = mean(price_sqm)) %>% 
+  arrange(desc(avg_followers))       
+property_region_count_top<-property_region_count[property_region_count$count_n>3,]
+property_region_count
+property_region_count_top
+```
+```{r}
+w_followers <- lj %>%
+  arrange(desc(followers))       
+w_followers
+```
+
+
+可以看到：
+
+- 直观结论1
+  当前武汉链家中的二手房里：
+  价格：单位面积均价和总面积均价都高于中位数，单位面积均价为15148元/㎡，总面积均价为155.9万元；单位面积均价和总面积均价的最大值和最小值差距较大；单位面积均价较高的小区和区域较多在武昌区；
+  面积：武汉二手房平均面积超100㎡，为中等户型；根据中位数推断，两室一厅和三室两厅为较常见的格局；
+
+- 直观结论2
+  当前武汉链家中的二手房里，白沙洲、盘龙城、四新、光谷东的二手房数量较多   ，市场供给量较大，属于近些年新开发较多楼盘，平均面积在100-110㎡波动；
+
+# 数据清洗与处理
+###### 将有缺失值和错乱值字段的数据进行内容的填充；
+```{r}
+lj_change <- lj
+target_column1 <- "near_subway"
+target_column2 <- "if_2y"
+target_column3 <- "has_key"
+target_column4 <- "vr"
+target_column5 <- "directions2"
+target_column6 <-"property_height"
+lj_change[[target_column1]] <- ifelse(is.na(lj_change[[target_column1]])|lj_change[[target_column1]] != "近地铁", "不近地铁", lj_change[[target_column1]])
+lj_change[[target_column2]] <- ifelse(is.na(lj_change[[target_column2]]), "房本未满两年", lj_change[[target_column2]])
+lj_change[[target_column3]] <-
+ifelse(is.na(lj_change[[target_column3]])|lj_change[[target_column3]] != "随时看房", "不能随时看房", lj_change[[target_column3]])
+lj_change[[target_column4]] <-
+ifelse(is.na(lj_change[[target_column4]])|lj_change[[target_column4]] != "VR看装修", "不能VR看装修", lj_change[[target_column4]])
+lj_change[[target_column5]] <- ifelse(is.na(lj_change[[target_column5]]), "朝向未知", lj_change[[target_column5]])
+lj_change[[target_column6]] <- ifelse(is.na(lj_change[[target_column6]]), "高未知", lj_change[[target_column6]])
+print(lj_change)
+```
+###### 将近地铁字段的数据进行处理为仅有近地铁和不近地铁；
+```{r}
+lj_change_subway <- lj_change %>%
+  filter(near_subway=="近地铁")
+lj_change_no_subway<-lj_change %>%
+  filter(near_subway!="近地铁")
+lj_change_subway
+lj_change_no_subway
+
+```
+```{r}
+lj_change_subway_a <- lj_change_subway %>%
+  group_by(property_region) %>%              
+  summarise(count_n = n(),
+            avg_building_area = mean(building_area),
+            avg_price_sqm = mean(price_sqm)) %>%   
+  arrange(desc(count_n))       
+lj_change_subway_a
+mean(lj_change_subway$price_sqm)
+```
+```{r}
+lj_change_no_subway_a<-lj_change_no_subway %>%
+  group_by(property_region) %>%              
+  summarise(count_n = n(),
+            avg_building_area = mean(building_area),
+            avg_price_sqm = mean(price_sqm)) %>%   
+  arrange(desc(count_n)) 
+lj_change_no_subway_a
+mean(lj_change_no_subway$price_sqm)
+```
+- 直观结论3
+  当前武汉链家中的二手房里，近地铁与不近地铁比例接近1:1，近地铁的单位面积均价（16623.93元/㎡）要高于近地铁的单位面积均价（13562.86元/㎡）
+
+# 探索性分析
+
+## 变量1 住宅的价格与总价的数值描述与图形
+```{r}
+ggplot(lj_change_no_subway, aes(x = price_sqm, y = price_ttl)) +
+  geom_line() +
+  labs(title = "单位面积房价-总价折线图", x = "price_sqm", y = "price_ttl")
+```
+
+- 发现1
+  不近地铁的小区整体来说，小区整体价格在23000元/㎡前和单位面积价格呈正相关；
+```{r}
+ggplot(lj_change_subway, aes(x = price_sqm, y = price_ttl)) +
+  geom_line() +
+  labs(title = "单位面积房价-总价折线图", x = "price_sqm", y = "price_ttl")
+```
+
+- 发现2
+  近地铁的小区整体来说，小区整体价格和单位面积价格呈正相关，但是波动幅度较大，受其他因素影响较多；
+
+## 变量2（建筑形式）的数值描述与图形
+```{r}
+mean(lj_change$price_ttl[lj_change$if_2y=="房本满两年"])
+mean(lj_change$price_ttl[lj_change$if_2y!="房本满两年"])
+
+```
+```{r}
+lj_change_property_style<-lj_change%>%
+  group_by(property_style) %>%             
+  summarise(count_n = n(),
+            avg_price_ttl=mean(price_ttl))%>%
+  arrange(desc(count_n)) 
+lj_change_property_style
+ggplot(lj_change_property_style, aes(x = property_style, y = avg_price_ttl)) +
+  geom_bar(stat = "identity", fill = "orange") +
+  labs(title = "建筑形式与平均价格关系", x = "property_style", y = "avg_price_ttl")
+```
+
+- 发现1
+  建筑形式均价：相对来说板塔结合的平均价格高于塔楼和板楼的房子，板塔结合的建筑的性能各方面较好；
+```{r}
+ggplot(lj_change_property_style, aes(x = property_style, y = count_n)) +
+  geom_bar(stat = "identity", fill = "orange") +
+  labs(title = "建筑形式的频数", x = "property_style", y = "count_n")
+```
+
+- 发现2
+  建筑形式数量：相对来说，武汉二手房是板楼属性的数量远远高于其他类型的建筑形式；
+  
+## 变量3（建筑总层数）的数值描述与图形
+```{r}
+lj_change_property_t_height<-lj_change%>%
+  group_by(property_t_height) %>%             
+  summarise(count_n = n(),
+            avg_price_ttl=mean(price_ttl))%>%
+  arrange(desc(count_n)) 
+lj_change_property_t_height
+
+ggplot(lj_change_property_t_height, aes(x = property_t_height, y = avg_price_ttl)) +
+  geom_bar(stat = "identity", fill = "orange") +
+  labs(title = "总层高与平均价格关系", x = "property_t_height", y = "avg_price_ttl")
+```
+
+- 发现1
+  建筑总层数：相对来说，总层高高于100m的超高层，均价高于高层，高于多层；2层，商品房作为商铺，均价最高；20层和42层价格相对来说较高；
+```{r}
+library(ggplot2)
+
+ggplot(lj_change_property_t_height, aes(x = property_t_height, y = count_n)) +
+  geom_bar(stat = "identity", fill = "orange") +
+  labs(title = "总层高与平均价格关系", x = "property_t_height", y = "count_n")
+```
+
+- 发现2  
+  建筑总层数：相对来说，多层6-8层，多层中11、18层；超高层中，32-35层为开发商较为喜欢的层高，可以达到各项最优，效率最高；
+
+## 变量4（朝向）的数值描述与图形
+```{r}
+lj_change_directions1<-lj_change%>%
+  group_by(directions1) %>%             
+  summarise(count_n = n(),
+            avg_price_ttl=mean(price_ttl))%>%
+  arrange(desc(count_n)) 
+lj_change_directions1
+
+ggplot(lj_change_directions1, aes(x = directions1, y = avg_price_ttl)) +
+  geom_bar(stat = "identity", fill = "orange") +
+  labs(title = "主朝向与平均价格关系", x = "directions1", y = "avg_price_ttl")
+```
+
+- 发现1
+  建筑朝向：相对来说，南向、东、东南向为日照采光最好的朝向，均价会受朝向较大影响；东北和西北向为建筑朝向较差，故均价最低；
+```{r}
+library(ggplot2)
+
+ggplot(lj_change, aes(x = directions1)) +
+  geom_bar(stat = "count", fill = "orange") +
+  labs(title = "总层高计数", x = "directions1", y = "count")
+```
+ - 发现2
+  建筑朝向：相对来说，南向、东、东南向为日照采光最好的朝向，开发商更多会设计南向作为主要朝向，因此南向、东向、东南向数量较多； 
+
+## 探索问题1 房间个数与房间面积关系
+```{r}
+ggplot(lj_change, aes(x = building_area, y = bedrooms)) +
+  geom_point() +
+  labs(title = "面积-房间个数点状图", x = "building_area", y = "bedrooms")
+```
+
+
+
+- 发现1
+  房间个数2、3、4较多；2个房间的较少超过120㎡，3个房间较少超过180㎡
+  
+## 探索问题2：特定小区（东立国际）楼层位置与平均价格关系
+```{r}
+lj_change_directions1<-lj_change%>%
+  group_by(directions1) %>%             
+  summarise(count_n = n(),
+            avg_price_ttl=mean(price_ttl))%>%
+  arrange(desc(count_n)) 
+lj_change_directions1
+ggplot(lj_change, aes(x = bedrooms, y = building_area)) +
+  geom_boxplot() +
+  labs(title = "房间个数-面积点状图", x = "房间个数", y = "面积")
+```
+```{r}
+ggplot(lj_change, aes(x = bedrooms, y = building_area)) +
+  geom_point() +
+  labs(title = "房间个数-面积点状图", x = "bedrooms", y = "building_area")
+```
+```{r}
+lj_change_property_dongli<-lj_change[lj_change$property_name=="东立国际",]
+lj_change_property_dongli
+lj_change_property_height_dongli<-lj_change_property_dongli%>%
+  group_by(property_height) %>%             
+  summarise(count_n = n(),
+            avg_price_sqm=mean(price_sqm))%>%
+  arrange(desc(count_n)) 
+lj_change_property_height_dongli
+
+ggplot(lj_change_property_height_dongli, aes(x = property_height, y = avg_price_sqm)) +
+  geom_bar(stat = "identity", fill = "orange") +
+  labs(title = "特定小区楼层位置与单位面积平均价格关系", x = "property_height", y = "avg_price_sqm")
+```
+
+
+
+- 发现1
+  东立小区住宅位置较低的单位面积单价要低位置高和中的；同一小区里，位置高单位面积的房间较高，可能与通风采光条件更好有关；
+
+---
+
+# 发现总结
+
+1.整体表现：
+当前武汉链家中的二手房里：
+  价格：单位面积均价和总面积均价都高于中位数，单位面积均价为15148元/㎡，总面积均价为155.9万元；单位面积均价和总面积均价的最大值和最小值差距较大；单位面积均价较高的小区和区域较多在武昌区；
+  面积：武汉二手房平均面积超100㎡，为中等户型；根据中位数推断，两室一厅和三室两厅为较常见的格局；
+当前武汉链家中的二手房里，白沙洲、盘龙城、四新、光谷东的二手房数量较多   ，市场供给量较大，属于近些年新开发较多楼盘，平均面积在100-110㎡波动；
+当前武汉链家中的二手房里，近地铁与不近地铁比例接近1:1，近地铁的单位面积均价（16623.93元/㎡）要高于近地铁的单位面积均价（13562.86元/㎡）
+
+2.配套：武汉二手房符合一般规律，近地铁仍然单位面积均价会有较大差异；
+不近地铁的小区整体来说，小区整体价格在23000元/㎡前和单位面积价格呈正相关；
+近地铁的小区整体来说，小区整体价格和单位面积价格呈正相关，但是波动幅度较大；
+
+3.建筑自身格局影响：南向贵，板塔结合贵，总高高的贵，住宅位置高的贵；
+板楼多，多层6-8层，多层中11、18层，32-35层多，主朝向为南向的多，房间个数2、3、4个的多；
+建筑形式均价：相对来说板塔结合的平均价格高于塔楼和板楼的房子，板塔结合的建筑的性能各方面较好；
+建筑形式数量：相对来说，武汉二手房是板楼属性的数量远远高于其他类型的建筑形式；
+建筑总层数：相对来说，总层高高于100m的超高层，均价高于高层，高于多层；2层，商品房作为商铺，均价最高；20层和42层价格相对来说较高；
+建筑总层数：相对来说，多层6-8层，多层中11、18层；超高层中，32-35层为开发商较为喜欢的层高，可以达到各项最优，效率最高；
+建筑朝向：相对来说，南向、东、东南向为日照采光最好的朝向，均价会受朝向较大影响；东北和西北向为建筑朝向较差，故均价最低；
+建筑朝向：相对来说，南向、东、东南向为日照采光最好的朝向，开发商更多会设计南向作为主要朝向；
+房间个数2、3、4较多；2个房间的较少超过120㎡，3个房间较少超过180㎡
+特定小区（东立小区住宅个数最多）住宅位置较低的单位面积单价要低位置高和中的；同一小区里，位置高单位面积的房间较高，可能与通风采光条件更好有关；
+
